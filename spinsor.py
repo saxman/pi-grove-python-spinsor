@@ -36,10 +36,10 @@ light = 0
 ultrasonic_ranger = 0
 
 with open('AUTH_TOKEN', 'r') as file:
-	auth_token = f.readline()
+	auth_token = file.readline()
 
 request = urllib2.Request('https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token)
-data = []
+data = {}
 
 with open('data', 'w') as fout:
 	while True:
@@ -50,7 +50,7 @@ with open('data', 'w') as fout:
 
 		## TODO wrap each in a try-except so that all sensors can be read despite exception
 		try:
-			grovepi.digitalWrite(l,d_port, 1)
+			grovepi.digitalWrite(PORT_LED_BLUE, 1)
 
 			sound = grovepi.analogRead(PORT_SOUND_SENSOR)
 
