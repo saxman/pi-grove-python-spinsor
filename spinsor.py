@@ -2,10 +2,8 @@
 
 import sys
 import time
-import threading
 import json
 import urllib2
-import Queue
 import grovepi
 import grove_rgb_lcd as lcd
 
