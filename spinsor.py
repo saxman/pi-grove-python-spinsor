@@ -55,7 +55,7 @@ with open('data', 'w') as fout:
 			[temperature, humidity] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
 
 			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
-			resistance = (float)(1023 - light) * 10 / light
+			#resistance = (float)(1023 - light) * 10 / light
 
 			ultrasonic_ranger = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
 
@@ -83,8 +83,8 @@ with open('data', 'w') as fout:
 		## write the data to disk
 		##
 
-		text = '{}\t{}\t{}\t{}\t{}\t{}\n'
-		line = text.format(timestamp, temperature, humidity, sound, light, ultrasonic_ranger)
+		text = '{}\t{}\t{}\t{}\t{}\n'
+		line = text.format(timestamp, temperature, humidity, sound, light)
 
 		fout.write(line)
 		fout.flush()
@@ -96,7 +96,10 @@ with open('data', 'w') as fout:
 		for i in ('timestamp', 'temperature', 'humidity', 'sound', 'light'):
 			data[i] = locals()[i]
 
-		urllib2.urlopen(request, json.dumps(data))
+		try:
+			urllib2.urlopen(request, json.dumps(data))
+		except urllib2.HTTPError, e:
+			sys.stderr.write(str(e))
 
 		##
 		## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
