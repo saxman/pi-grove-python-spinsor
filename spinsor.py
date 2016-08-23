@@ -2,67 +2,77 @@
 
 import sys
 import time
+import threading
+import json
+import urllib2
+import Queue
 import grovepi
 import grove_rgb_lcd as lcd
 
-light_sensor = 0
-grovepi.pinMode(light_sensor, "INPUT")
+## Ports for the sensors
+PORT_LIGHT_SENSOR = 0 # analog
+PORT_SOUND_SENSOR = 1 # analog
+PORT_DHT_SENSOR = 7 # digital
+PORT_ULTRASONIC_RANGER = 8 # digital
+PORT_LED_BLUE = 4 # digital
 
-sound_sensor = 1
-grovepi.pinMode(sound_sensor, "INPUT")
+## DHT sensor type for "Grove - Temperature and Humdity" sensor
+DHT_SENSOR_TYPE = 0
 
-ultrasonic_ranger = 8
-ultrasonic_theshold = 10
+## The sensor value that triggers the LCD to turn on
+ULTRASONIC_RANGER_THRESHOLD = 10
 
-dht_sensor_port = 7
-dht_sensor_type = 0
-
-led_port = 4
-grovepi.pinMode(led_port, "OUTPUT")
+grovepi.pinMode(PORT_LIGHT_SENSOR, "INPUT")
+grovepi.pinMode(PORT_SOUND_SENSOR, "INPUT")
+grovepi.pinMode(PORT_LED_BLUE, "OUTPUT")
 
 lcd.setRGB(0, 64, 64)
 lcd_timer = 5
 
-snd = 0
-temp = 0
-hum = 0
+sound = 0
+temperature = 0
+humidity = 0
 light = 0
-ultra = 0
+ultrasonic_ranger = 0
+
+with open('AUTH_TOKEN', 'r') as file:
+	auth_token = f.readline()
+
+request = urllib2.Request('https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token)
+data = []
 
 with open('data', 'w') as fout:
 	while True:
 
+		##
 		## read from the sensors
+		##
+
 		## TODO wrap each in a try-except so that all sensors can be read despite exception
 		try:
-			grovepi.digitalWrite(led_port, 1)
+			grovepi.digitalWrite(l,d_port, 1)
 
-			snd = grovepi.analogRead(sound_sensor)
+			sound = grovepi.analogRead(PORT_SOUND_SENSOR)
 
-			[temp, hum] = grovepi.dht(dht_sensor_port, dht_sensor_type)
+			[temperature, humidity] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
 
-			light = grovepi.analogRead(light_sensor)
+			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
 			resistance = (float)(1023 - light) * 10 / light
 
-			ultra = grovepi.ultrasonicRead(ultrasonic_ranger)
+			ultrasonic_ranger = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
 
-			grovepi.digitalWrite(led_port, 0)
+			grovepi.digitalWrite(PORT_LED_BLUE, 0)
 		except IOError, e:
 			sys.stderr.write(str(e))
 
-		## write the data to disk
+		timestamp = long(time.time())
 
-		t = long(time.time())
-		text = '{}\t{}\t{}\t{}\t{}\t{}\n'
-		s = text.format(t, temp, hum, snd, light, ultra)
-
-		fout.write(s)
-		fout.flush()
-
+		##
 		## write the data to the display
+		##
 
 		text = "T:{}C H:{}% S:{} L:{} U:{}"
-		s = text.format(temp, hum, snd, light, ultra)
+		s = text.format(temperature, humidity, sound, light, ultrasonic_ranger)
 
 		## pad the text to ensure prior text is overwritten
 		if len(s) < 32:
@@ -71,9 +81,30 @@ with open('data', 'w') as fout:
 
 		lcd.setText_norefresh(s)
 
-		## light the lcd if the user waved their hand over the ultrasonic sensor
+		##
+		## write the data to disk
+		##
 
-		if ultra < ultrasonic_theshold:
+		text = '{}\t{}\t{}\t{}\t{}\t{}\n'
+		line = text.format(timestamp, temperature, humidity, sound, light, ultrasonic_ranger)
+
+		fout.write(line)
+		fout.flush()
+
+		##
+		## write the data to the cloud storage
+		##
+
+		for i in ('timestamp', 'temperature', 'humidity', 'sound', 'light'):
+			data[i] = locals()[i]
+
+		urllib2.urlopen(request, json.dumps(data))
+
+		##
+		## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
+		##
+
+		if ultrasonic_ranger < ULTRASONIC_RANGER_THRESHOLD:
 			lcd_timer = 5
 
 		if lcd_timer >= 0:
