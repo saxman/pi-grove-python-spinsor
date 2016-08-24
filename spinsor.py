@@ -5,6 +5,7 @@ import time
 import math
 import json
 import urllib2
+import httplib
 import socket
 import ssl
 import grovepi
@@ -86,10 +87,12 @@ with open('data', 'w') as fout:
 
 			lcd.setText_norefresh(line)
 
-		except IOError as err:
-			sys.stderr.write(str(err) + '\n')
-		except TypeError as err:
-			sys.stderr.write(str(err) + '\n')
+		except IOError as e:
+			sys.stderr.write(str(e) + '\n')
+		except TypeError as e:
+			sys.stderr.write(str(e) + '\n')
+		except:
+			sys.stderr.write(sys.exc_info()[0])
 
 		##
 		## write the data to disk
@@ -110,15 +113,21 @@ with open('data', 'w') as fout:
 		line = json.dumps(data)
 
 		try:
-			urllib2.urlopen(request, line, timeout = 1)
-		except urllib2.URLError as err:
-			sys.stderr.write(str(err) + '\n')
+			urllib2.urlopen(request, line, timeout = 5)
+		except urllib2.URLError as e:
+			sys.stderr.write(str(e) + '\n')
 			sys.stderr.write(line + '\n')
-		except socket.timeout as err:
-			sys.stderr.write(str(err) + '\n')
+		except socket.timeout as e:
+			sys.stderr.write(str(e) + '\n')
 			sys.stderr.write(line + '\n')
-		except ssl.SSLError as err:
-			sys.stderr.write(str(err) + '\n')
+		except ssl.SSLError as e:
+			sys.stderr.write(str(e) + '\n')
+			sys.stderr.write(line + '\n')
+		except httplib.BadStatusLine as e:
+			sys.stderr.write(str(e) + '\n')
+			sys.stderr.write(line + '\n')
+		except:
+			sys.stderr.write(sys.exc_info()[0])
 			sys.stderr.write(line + '\n')
 
 		##
