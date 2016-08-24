@@ -2,6 +2,7 @@
 
 import sys
 import time
+import math
 import json
 import urllib2
 import grovepi
@@ -39,52 +40,57 @@ with open('AUTH_TOKEN', 'r') as file:
 request = urllib2.Request('https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token)
 data = {}
 
+LOG_TEXT_FORMAT = '{}\t{}\t{}\t{}\t{}\n'
+LCD_TEXT_FORMAT = 'T:{}C H:{}% S:{} L:{} U:{}'
+
 with open('data', 'w') as fout:
 	while True:
 
-		##
-		## read from the sensors
-		##
+		timestamp = long(time.time())
 
 		## TODO wrap each in a try-except so that all sensors can be read despite exception
 		try:
+			##
+			## read from the sensors
+			##
+
+			## signal sensor data reading
 			grovepi.digitalWrite(PORT_LED_BLUE, 1)
 
 			sound = grovepi.analogRead(PORT_SOUND_SENSOR)
+			sound = sound if not math.isnan(sound) else -1
 
 			[temperature, humidity] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
+			temperature = temperature if not math.isnan(temperature) else -1
+			humidity = humidity if not math.isnan(humidity) else -1
 
 			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
+			light = light if not math.isnan(light) else -1
+
 			#resistance = (float)(1023 - light) * 10 / light
 
 			ultrasonic_ranger = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
 
+			## signal sensor data reading complete
 			grovepi.digitalWrite(PORT_LED_BLUE, 0)
-		except IOError, e:
-			sys.stderr.write(str(e))
 
-		timestamp = long(time.time())
+			##
+			## write the data to the display
+			##
 
-		##
-		## write the data to the display
-		##
+			line = LCD_TEXT_FORMAT.format(temperature, humidity, sound, light, ultrasonic_ranger)
+			line.ljust(32)
 
-		text = "T:{}C H:{}% S:{} L:{} U:{}"
-		s = text.format(temperature, humidity, sound, light, ultrasonic_ranger)
+			lcd.setText_norefresh(line)
 
-		## pad the text to ensure prior text is overwritten
-		if len(s) < 32:
-			for x in range(len(s), 32):
-				s += " "
-
-		lcd.setText_norefresh(s)
+		except Exception as err:
+			sys.stderr.write(str(err) + '\n')
 
 		##
 		## write the data to disk
 		##
 
-		text = '{}\t{}\t{}\t{}\t{}\n'
-		line = text.format(timestamp, temperature, humidity, sound, light)
+		line = LOG_TEXT_FORMAT.format(timestamp, temperature, humidity, sound, light)
 
 		fout.write(line)
 		fout.flush()
@@ -96,10 +102,13 @@ with open('data', 'w') as fout:
 		for i in ('timestamp', 'temperature', 'humidity', 'sound', 'light'):
 			data[i] = locals()[i]
 
+		line = json.dumps(data)
+
 		try:
-			urllib2.urlopen(request, json.dumps(data))
-		except urllib2.HTTPError, e:
-			sys.stderr.write(str(e))
+			urllib2.urlopen(request, line)
+		except Exception as err:
+			sys.stderr.write(str(err) + '\n')
+			sys.stderr.write(line + '\n')
 
 		##
 		## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
