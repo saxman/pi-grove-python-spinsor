@@ -5,6 +5,8 @@ import time
 import math
 import json
 import urllib2
+import socket
+import ssl
 import grovepi
 import grove_rgb_lcd as lcd
 
@@ -58,14 +60,15 @@ with open('data', 'w') as fout:
 			grovepi.digitalWrite(PORT_LED_BLUE, 1)
 
 			sound = grovepi.analogRead(PORT_SOUND_SENSOR)
-			sound = sound if not math.isnan(sound) else -1
+			if math.isnan(sound): sound = -1
 
 			[temperature, humidity] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
-			temperature = temperature if not math.isnan(temperature) else -1
-			humidity = humidity if not math.isnan(humidity) else -1
+			if math.isnan(temperature): temperature = -1
+			if temperature < -1: temperature = -1
+			if math.isnan(humidity): humidity = -1
 
 			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
-			light = light if not math.isnan(light) else -1
+			if math.isnan(light): light = -1
 
 			#resistance = (float)(1023 - light) * 10 / light
 
@@ -83,7 +86,9 @@ with open('data', 'w') as fout:
 
 			lcd.setText_norefresh(line)
 
-		except Exception as err:
+		except IOError as err:
+			sys.stderr.write(str(err) + '\n')
+		except TypeError as err:
 			sys.stderr.write(str(err) + '\n')
 
 		##
@@ -105,8 +110,14 @@ with open('data', 'w') as fout:
 		line = json.dumps(data)
 
 		try:
-			urllib2.urlopen(request, line)
-		except Exception as err:
+			urllib2.urlopen(request, line, timeout = 1)
+		except urllib2.URLError as err:
+			sys.stderr.write(str(err) + '\n')
+			sys.stderr.write(line + '\n')
+		except socket.timeout as err:
+			sys.stderr.write(str(err) + '\n')
+			sys.stderr.write(line + '\n')
+		except ssl.SSLError as err:
 			sys.stderr.write(str(err) + '\n')
 			sys.stderr.write(line + '\n')
 
