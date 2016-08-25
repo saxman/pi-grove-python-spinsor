@@ -4,6 +4,7 @@ import sys
 import time
 import math
 import json
+import urllib
 import urllib2
 import httplib
 import socket
@@ -40,7 +41,7 @@ ultrasonic_ranger = 0
 with open('AUTH_TOKEN', 'r') as file:
 	auth_token = file.readline()
 
-request = urllib2.Request('https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token)
+FIREBASE_URL = 'https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token
 data = {}
 
 LOG_TEXT_FORMAT = '{}\t{}\t{}\t{}\t{}\n'
@@ -91,8 +92,8 @@ with open('data', 'w') as fout:
 			sys.stderr.write(str(e) + '\n')
 		except TypeError as e:
 			sys.stderr.write(str(e) + '\n')
-		except:
-			sys.stderr.write(sys.exc_info()[0])
+		except Exception as e:
+			sys.stderr.write(str(e) + '\n')
 
 		##
 		## write the data to disk
@@ -110,25 +111,27 @@ with open('data', 'w') as fout:
 		for i in ('timestamp', 'temperature', 'humidity', 'sound', 'light'):
 			data[i] = locals()[i]
 
-		line = json.dumps(data)
+		post_data = json.dumps(data)
+		req = urllib2.Request(FIREBASE_URL, post_data, {'Content-Type': 'application/json'})
 
 		try:
-			urllib2.urlopen(request, line, timeout = 5)
+			response = urllib2.urlopen(req, timeout = 5)
+			d = response.read()
 		except urllib2.URLError as e:
 			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(line + '\n')
+			sys.stderr.write(post_data + '\n')
 		except socket.timeout as e:
 			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(line + '\n')
+			sys.stderr.write(post_data + '\n')
 		except ssl.SSLError as e:
 			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(line + '\n')
+			sys.stderr.write(post_data + '\n')
 		except httplib.BadStatusLine as e:
 			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(line + '\n')
-		except:
-			sys.stderr.write(sys.exc_info()[0])
-			sys.stderr.write(line + '\n')
+			sys.stderr.write(post_data + '\n')
+		except Exception as e:
+			sys.stderr.write(str(e) + '\n')
+			sys.stderr.write(post_data + '\n')
 
 		##
 		## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
