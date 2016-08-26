@@ -140,8 +140,11 @@ with open('data', 'w') as fout:
 		if ultrasonic_ranger < ULTRASONIC_RANGER_THRESHOLD:
 			lcd_timer = 5
 
-		if lcd_timer >= 0:
-			lcd.setRGB(0, 64, 64)
-			lcd_timer -= 1
-		else:
-			lcd.setRGB(0, 0, 0)
+		try:	
+			if lcd_timer >= 0:
+				lcd.setRGB(0, 64, 64)
+				lcd_timer -= 1
+			else:
+				lcd.setRGB(0, 0, 0)
+		except Exception as e:
+			sys.stderr.write(str(e) + '\n')
