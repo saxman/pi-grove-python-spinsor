@@ -4,11 +4,8 @@ import sys
 import time
 import math
 import json
-import urllib
-import urllib2
-import httplib
-import socket
-import ssl
+import urllib, urllib2
+from multiprocessing import Process, Queue
 import grovepi
 import grove_rgb_lcd as lcd
 
@@ -23,7 +20,74 @@ PORT_LED_BLUE = 4 # digital
 DHT_SENSOR_TYPE = 0
 
 ## The sensor value that triggers the LCD to turn on
-ULTRASONIC_RANGER_THRESHOLD = 10
+ULTRASONIC_RANGER_THRESHOLD = 20
+
+LOG_TEXT_FORMAT = '{}\t{}\t{}\t{}\t{}\n'
+LCD_TEXT_FORMAT = 'T:{}C H:{}% S:{} L:{} U:{}'
+
+FIREBASE_URL = 'https://spinsor-b38d3.firebaseio.com/samples/saxman.json'
+
+def store_data_proc(queue, datastore_url):
+	while True:
+		data = queue.get()
+		post_data = json.dumps(data)
+		req = urllib2.Request(datastore_url, post_data, {'Content-Type': 'application/json'})
+		try:
+			resp = urllib2.urlopen(req, timeout = 5)
+		except Exception as e:
+			sys.stderr.write(str(e) + '\n')
+
+
+def log_data_proc(queue):
+	with open('data', 'w') as fout:
+		while True:
+			data = queue.get()
+			line = LOG_TEXT_FORMAT.format(data['timestamp'], data['temp'], data['hum'], data['snd'], data['light'])
+			fout.write(line)
+			fout.flush()
+
+
+def read_data_proc(log_queue, storage_queue):
+	while True:
+		try:
+			timestamp = long(time.time()*1000)
+
+			## turn on blue LED to show that data is reading
+			grovepi.digitalWrite(PORT_LED_BLUE, 1)
+
+			snd = grovepi.analogRead(PORT_SOUND_SENSOR)
+			if math.isnan(snd): snd = -1
+
+			[temp, hum] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
+			if math.isnan(temp): temp = -1
+			if temp < -1: temp = -1
+			if math.isnan(hum): hum = -1
+
+			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
+			if math.isnan(light): light = -1
+
+			#resistance = (float)(1023 - light) * 10 / light
+
+			usr = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
+
+			## turn off blue LED to show that data is done reading
+			grovepi.digitalWrite(PORT_LED_BLUE, 0)
+
+			## package and send the data for processing
+			data = {}
+			for i in ('timestamp', 'temp', 'hum', 'snd', 'light', 'usr'):
+				data[i] = locals()[i]
+
+			log_queue.put(data)
+			storage_queue.put(data)
+
+			line = LCD_TEXT_FORMAT.format(temp, hum, snd, light, usr)
+			line.ljust(32)
+
+			lcd.setText_norefresh(line)
+		except Exception as e:
+			sys.stderr.write(str(e) + '\n')
+
 
 grovepi.pinMode(PORT_LIGHT_SENSOR, "INPUT")
 grovepi.pinMode(PORT_SOUND_SENSOR, "INPUT")
@@ -32,119 +96,42 @@ grovepi.pinMode(PORT_LED_BLUE, "OUTPUT")
 lcd.setRGB(0, 64, 64)
 lcd_timer = 5
 
-sound = 0
-temperature = 0
-humidity = 0
-light = 0
-ultrasonic_ranger = 0
-
 with open('AUTH_TOKEN', 'r') as file:
 	auth_token = file.readline()
 
-FIREBASE_URL = 'https://spinsor-b38d3.firebaseio.com/samples/saxman.json?auth=' + auth_token
-data = {}
+datastore_url = FIREBASE_URL + '?auth=' + auth_token
 
-LOG_TEXT_FORMAT = '{}\t{}\t{}\t{}\t{}\n'
-LCD_TEXT_FORMAT = 'T:{}C H:{}% S:{} L:{} U:{}'
+log_queue = Queue()
+storage_queue = Queue()
 
-with open('data', 'w') as fout:
-	while True:
+proc = Process(target=store_data_proc, args=(storage_queue, datastore_url))
+proc.daemon = True
+proc.start()
 
-		timestamp = long(time.time())
+proc = Process(target=log_data_proc, args=(log_queue,))
+proc.daemon = True
+proc.start()
 
-		## TODO wrap each in a try-except so that all sensors can be read despite exception
-		try:
-			##
-			## read from the sensors
-			##
+proc = Process(target=read_data_proc, args=(log_queue, storage_queue))
+proc.daemon = True
+proc.start()
 
-			## signal sensor data reading
-			grovepi.digitalWrite(PORT_LED_BLUE, 1)
+while True:
+	time.sleep(1)
 
-			sound = grovepi.analogRead(PORT_SOUND_SENSOR)
-			if math.isnan(sound): sound = -1
 
-			[temperature, humidity] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
-			if math.isnan(temperature): temperature = -1
-			if temperature < -1: temperature = -1
-			if math.isnan(humidity): humidity = -1
+##
+## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
+##
 
-			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
-			if math.isnan(light): light = -1
+if ultrasonic_ranger < ULTRASONIC_RANGER_THRESHOLD:
+	lcd_timer = 5
 
-			#resistance = (float)(1023 - light) * 10 / light
-
-			ultrasonic_ranger = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
-
-			## signal sensor data reading complete
-			grovepi.digitalWrite(PORT_LED_BLUE, 0)
-
-			##
-			## write the data to the display
-			##
-
-			line = LCD_TEXT_FORMAT.format(temperature, humidity, sound, light, ultrasonic_ranger)
-			line.ljust(32)
-
-			lcd.setText_norefresh(line)
-
-		except IOError as e:
-			sys.stderr.write(str(e) + '\n')
-		except TypeError as e:
-			sys.stderr.write(str(e) + '\n')
-		except Exception as e:
-			sys.stderr.write(str(e) + '\n')
-
-		##
-		## write the data to disk
-		##
-
-		line = LOG_TEXT_FORMAT.format(timestamp, temperature, humidity, sound, light)
-
-		fout.write(line)
-		fout.flush()
-
-		##
-		## write the data to the cloud storage
-		##
-
-		for i in ('timestamp', 'temperature', 'humidity', 'sound', 'light'):
-			data[i] = locals()[i]
-
-		post_data = json.dumps(data)
-		req = urllib2.Request(FIREBASE_URL, post_data, {'Content-Type': 'application/json'})
-
-		try:
-			response = urllib2.urlopen(req, timeout = 5)
-			d = response.read()
-		except urllib2.URLError as e:
-			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(post_data + '\n')
-		except socket.timeout as e:
-			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(post_data + '\n')
-		except ssl.SSLError as e:
-			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(post_data + '\n')
-		except httplib.BadStatusLine as e:
-			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(post_data + '\n')
-		except Exception as e:
-			sys.stderr.write(str(e) + '\n')
-			sys.stderr.write(post_data + '\n')
-
-		##
-		## light the lcd if the user waved their hand over the ultrasonic_rangersonic sensor
-		##
-
-		if ultrasonic_ranger < ULTRASONIC_RANGER_THRESHOLD:
-			lcd_timer = 5
-
-		try:	
-			if lcd_timer >= 0:
-				lcd.setRGB(0, 64, 64)
-				lcd_timer -= 1
-			else:
-				lcd.setRGB(0, 0, 0)
-		except Exception as e:
-			sys.stderr.write(str(e) + '\n')
+try:	
+	if lcd_timer >= 0:
+		lcd.setRGB(0, 64, 64)
+		lcd_timer -= 1
+	else:
+		lcd.setRGB(0, 0, 0)
+except Exception as e:
+	sys.stderr.write(str(e) + '\n')
