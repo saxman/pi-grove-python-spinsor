@@ -6,8 +6,13 @@ import math
 import json
 import urllib, urllib2
 from multiprocessing import Process, Queue, Lock
-import grovepi
-import grove_rgb_lcd as lcd
+
+try:
+    import grovepi
+    import grove_rgb_lcd as lcd
+except:
+    import grovepi_mock as grovepi
+    import grovepi_mock.lcd as lcd
 
 ## Ports for the sensors
 PORT_LIGHT_SENSOR = 0 # analog
