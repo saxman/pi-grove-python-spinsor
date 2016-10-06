@@ -5,7 +5,7 @@ import time
 import math
 import json
 import urllib, urllib2
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Lock
 import grovepi
 import grove_rgb_lcd as lcd
 
@@ -28,65 +28,69 @@ LCD_TEXT_FORMAT = 'T:{}C H:{}% S:{} L:{} U:{}'
 FIREBASE_URL = 'https://spinsor-b38d3.firebaseio.com/samples/saxman.json'
 
 def store_data_proc(queue, datastore_url):
-	while True:
-		data = queue.get()
-		post_data = json.dumps(data)
-		req = urllib2.Request(datastore_url, post_data, {'Content-Type': 'application/json'})
-		try:
-			resp = urllib2.urlopen(req, timeout = 5)
-		except Exception as e:
-			sys.stderr.write(str(e) + '\n')
+    while True:
+        data = queue.get()
+        post_data = json.dumps(data)
+        req = urllib2.Request(datastore_url, post_data, {'Content-Type': 'application/json'})
+        try:
+            resp = urllib2.urlopen(req, timeout=5)
+        except Exception as e:
+            sys.stderr.write(str(e) + '\n')
+            ## if there's an exception writing the data, re-queue it to try again
+            queue.put(data)
+        ## TODO re-queue if there's an HTTP error writing the data
 
 
 def log_data_proc(queue):
-	with open('data', 'w') as fout:
-		while True:
-			data = queue.get()
-			line = LOG_TEXT_FORMAT.format(data['timestamp'], data['temp'], data['hum'], data['snd'], data['light'])
-			fout.write(line)
-			fout.flush()
+    with open('data', 'w') as fout:
+        while True:
+            data = queue.get()
+            line = LOG_TEXT_FORMAT.format(data['timestamp'], data['temp'], data['hum'], data['snd'], data['light'])
+            fout.write(line)
+            fout.flush()
 
 
-def read_data_proc(log_queue, storage_queue):
-	while True:
-		try:
-			timestamp = long(time.time()*1000)
+def read_data_proc(processing_queues):
+    while True:
+        try:
+            ## current time in ms
+            timestamp = long(time.time()*1000)
 
-			## turn on blue LED to show that data is reading
-			grovepi.digitalWrite(PORT_LED_BLUE, 1)
+            ## turn the blue LED ON to show that data is being read
+            grovepi.digitalWrite(PORT_LED_BLUE, 1)
 
-			snd = grovepi.analogRead(PORT_SOUND_SENSOR)
-			if math.isnan(snd): snd = -1
+            snd = grovepi.analogRead(PORT_SOUND_SENSOR)
+            if math.isnan(snd): snd = -1
 
-			[temp, hum] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
-			if math.isnan(temp): temp = -1
-			if temp < -1: temp = -1
-			if math.isnan(hum): hum = -1
+            [temp, hum] = grovepi.dht(PORT_DHT_SENSOR, DHT_SENSOR_TYPE)
+            if math.isnan(temp): temp = -1
+            if temp < -1: temp = -1
+            if math.isnan(hum): hum = -1
 
-			light = grovepi.analogRead(PORT_LIGHT_SENSOR)
-			if math.isnan(light): light = -1
+            light = grovepi.analogRead(PORT_LIGHT_SENSOR)
+            if math.isnan(light): light = -1
 
-			#resistance = (float)(1023 - light) * 10 / light
+            #resistance = (float)(1023 - light) * 10 / light
 
-			usr = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
+            usr = grovepi.ultrasonicRead(PORT_ULTRASONIC_RANGER)
 
-			## turn off blue LED to show that data is done reading
-			grovepi.digitalWrite(PORT_LED_BLUE, 0)
+            ## turn the blue LED OFF to show that data is done reading
+            grovepi.digitalWrite(PORT_LED_BLUE, 0)
 
-			## package and send the data for processing
-			data = {}
-			for i in ('timestamp', 'temp', 'hum', 'snd', 'light', 'usr'):
-				data[i] = locals()[i]
+            ## package and send the data for processing
+            data = {}
+            for i in ('timestamp', 'temp', 'hum', 'snd', 'light', 'usr'):
+                data[i] = locals()[i]
 
-			log_queue.put(data)
-			storage_queue.put(data)
+            for queue in processing_queues:
+                queue.put(data)
 
-			line = LCD_TEXT_FORMAT.format(temp, hum, snd, light, usr)
-			line.ljust(32)
+            line = LCD_TEXT_FORMAT.format(temp, hum, snd, light, usr)
+            line.ljust(32)
 
-			lcd.setText_norefresh(line)
-		except Exception as e:
-			sys.stderr.write(str(e) + '\n')
+            lcd.setText_norefresh(line)
+        except Exception as e:
+            sys.stderr.write(str(e) + '\n')
 
 
 grovepi.pinMode(PORT_LIGHT_SENSOR, "INPUT")
@@ -97,12 +101,13 @@ lcd.setRGB(0, 64, 64)
 lcd_timer = 5
 
 with open('AUTH_TOKEN', 'r') as file:
-	auth_token = file.readline()
+    auth_token = file.readline()
 
 datastore_url = FIREBASE_URL + '?auth=' + auth_token
 
 log_queue = Queue()
 storage_queue = Queue()
+queues = [log_queue, storage_queue]
 
 proc = Process(target=store_data_proc, args=(storage_queue, datastore_url))
 proc.daemon = True
@@ -112,12 +117,12 @@ proc = Process(target=log_data_proc, args=(log_queue,))
 proc.daemon = True
 proc.start()
 
-proc = Process(target=read_data_proc, args=(log_queue, storage_queue))
+proc = Process(target=read_data_proc, args=(queues,))
 proc.daemon = True
 proc.start()
 
 while True:
-	time.sleep(1)
+    time.sleep(1)
 
 
 ##
@@ -125,13 +130,13 @@ while True:
 ##
 
 if ultrasonic_ranger < ULTRASONIC_RANGER_THRESHOLD:
-	lcd_timer = 5
+    lcd_timer = 5
 
-try:	
-	if lcd_timer >= 0:
-		lcd.setRGB(0, 64, 64)
-		lcd_timer -= 1
-	else:
-		lcd.setRGB(0, 0, 0)
+try:    
+    if lcd_timer >= 0:
+        lcd.setRGB(0, 64, 64)
+        lcd_timer -= 1
+    else:
+        lcd.setRGB(0, 0, 0)
 except Exception as e:
-	sys.stderr.write(str(e) + '\n')
+    sys.stderr.write(str(e) + '\n')
